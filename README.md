@@ -1,7 +1,7 @@
 # 🎈Better with Blimps EXtension (BwBEX)
-A library designed for use with the Better with Blimps mod and its' existing compatibility API! Designed for use with the **[Figura](https://github.com/FiguraMC/Figura)** mod.
+A **[Figura](https://github.com/FiguraMC/Figura)** library designed for use with the Better with Blimps mod and its' existing compatibility API!
 
-If you're looking for a function reference, please refer to the [wiki](https://github.com/MythicFunkable/BwBEX/wiki).
+If you're looking for a function reference, please refer to the [wiki]().
 ## ✔️ Highlights
 * An implementation of **animation smoothing** for your model's inflation in an attempt to improve immersion
 * A function to **vibrate parts** as your scale increases, to emulate creaking
@@ -13,5 +13,4 @@ If you're looking for a function reference, please refer to the [wiki](https://g
 local BwBEX = require("BwBEX")
 ```
 3. Do the same to the existing Better with Blimps API mod by CatChris. You can find it lurking around in one of the server's channels.
-
 Congratulations! You're all done and ready to use what's inside!
