@@ -42,6 +42,8 @@ end
 
 if not BwBAPI then error("The BwB Compatibility API is not installed! Please place it somewhere in your avatar") end
 
+if not BwBEX.BwB then print("Better with Blimps is not installed! BwBEX is off") end
+
 -- Basic functions
 local function RandomFloat(min, max)
     return min + math.random() * (max - min)
@@ -63,9 +65,10 @@ end
 ---@param dict table A dictionary of contents describing the intensity of the vibration effect on the selected model parts. Example of a valid dictionary will be provided below this function.
 ---@param threshold number? A percentage of the meter that must be filled before this effect become noticable. 0 is no pressure, 1 is max pressure. If no number is provided, the default is 0.6 (60%).
 function BwBEX:vibrate(dict, threshold)
+    if not BwBEX.BwB then return end
     if not threshold then threshold = 0.6 end
-    threshold = threshold * 20
-    local MaxPressureSize = 0.03 -- Maximum part size
+    threshold = math.clamp(threshold * 20, 0, 1)
+    local MaxPressureSize = 0.01 -- Maximum part size
     local Speed = 1 -- Speed of the effect
     local Intensity = 4 -- How intense the effect is overall
     local Pressurized = false -- Determines if the parts should be reset to their original scales
@@ -113,7 +116,7 @@ function BwBEX:vibrate(dict, threshold)
             if DeltaSum > MaxSum then
                 DeltaSum = 0
                 -- Make a new pseudo random part size for the next one
-                PressureSize = RandomFloat(0.005, MaxPressureSize)
+                PressureSize = RandomFloat(0.0025, MaxPressureSize)
             end
         end
 
@@ -150,9 +153,11 @@ end
 ---@param intensity number? A value that determines how intense the effect is. It scales with your inflation linearly, so do keep that in mind! Default is 1.
 ---@param offset number? A value to determine the original offset of your model. This will help you keep the model from clipping into the floor when this module is active!
 function BwBEX:float(model, threshold, intensity, offset)
+    if not BwBEX.BwB then return end
     if not threshold then threshold = 1/5 end
     if not intensity then intensity = 1 end
     if not offset then offset = 0 end
+    threshold = math.clamp(threshold, 0, 1)
     local LastFloatPressure = 0
     local FloatSpeed = 1 -- How fast the effect is
     local LastFloatDelta = client.getSystemTime()
@@ -193,6 +198,7 @@ end
 ---@param anim Animation The inflation animation to link to this function
 ---@param smoothing number A smoothing value for the inflation animation.
 function BwBEX.smoothInflate:new(anim, smoothing)
+    if not BwBEX.BwB then return end
     self = setmetatable({}, BwBEX)
     smoothing = math.max(1, smoothing)
     
