@@ -84,7 +84,7 @@ function BwBEX:vibrate(dict, threshold)
         if not BwBEX.paused then
             local Pressure = BwBAPI:getPressure() -- Current player's pressure
             
-            if Pressure > threshold then
+            if (Pressure / 20) > threshold then
                 local deltaTime = (1/20 * (Speed/10)) / delta -- Modifying the speed of the effect. Divided by delta for frame time consistencies (otherwise it'll get slower the worse your frames are)
                 local PseudoRandomIntensity = RandomFloat(0.25, 1.75) -- Randomness
 
