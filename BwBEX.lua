@@ -67,7 +67,7 @@ end
 function BwBEX:vibrate(dict, threshold)
     if not BwBEX.BwB then return end
     if not threshold then threshold = 0.6 end
-    threshold = math.clamp(threshold * 20, 0, 1)
+    threshold = math.clamp(threshold, 0, 1)
     local MaxPressureSize = 0.01 -- Maximum part size
     local Speed = 1 -- Speed of the effect
     local Intensity = 4 -- How intense the effect is overall
