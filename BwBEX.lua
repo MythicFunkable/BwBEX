@@ -16,9 +16,6 @@
     The credits of any inspiration that I take will be 
     provided above the function itself
     
-    This library REQUIRES the presence of the original BwB
-    API, so please make sure you have that somewhere!
-
     Made by Sempur Mythica
     Credits to psq95, sufferneer, and CatChris for their 
     existing knowledge and scripts!
@@ -30,17 +27,10 @@
 local BwBEX = {
     paused = false,
     BwB = client:isModLoaded("better_with_blimps"),
-    smoothInflate = {}
+    smoothInflate = {},
+    pressure = 0
 }
 BwBEX.__index = BwBEX
-
--- The original BwB Library
-local BwBAPI
-for _, path in ipairs(listFiles("/", true)) do
-    if string.find(path, "BwBCompApi") then BwBAPI = require(path) end
-end
-
-if not BwBAPI then error("The BwB Compatibility API is not installed! Please place it somewhere in your avatar") end
 
 if not BwBEX.BwB then print("Better with Blimps is not installed! BwBEX is off") end
 
@@ -53,9 +43,33 @@ local function GetDelta(LastClientTime)
     return (client.getSystemTime()-LastClientTime)/100
 end
 
+local function GetPressure()
+    if player:isLoaded() then
+        local NBTAttribs = player:getNbt().Attributes
+        local Value
+
+        for i,v in pairs(NBTAttribs) do
+            if NBTAttribs[i].Name == "better_with_blimps:inflated_attribute" then 
+                Value = NBTAttribs[i].Base
+                break
+            end
+        end
+
+        if not type(Value) == "number" or not Value then
+            Value = 0
+        end
+
+        return Value
+    end
+end
+
 -- Loops
 function events.tick()
     BwBEX.paused = client:isPaused() and #world:getPlayers() < 2 and host:isHost()
+
+    if not BwBEX.paused then
+        BwBEX.pressure = GetPressure()
+    end
 end
 
 
@@ -81,14 +95,12 @@ function BwBEX:vibrate(dict, threshold)
     function events.render()
         local delta = GetDelta(LastStrainDelta) -- WHY DID YOU MAKE ME DO THIS.
 
-        if not BwBEX.paused then
-            local Pressure = BwBAPI:getPressure() -- Current player's pressure
-            
-            if (Pressure / 20) > threshold then
+        if not BwBEX.paused then            
+            if (BwBEX.pressure / 20) > threshold then
                 local deltaTime = (1/20 * (Speed/10)) / delta -- Modifying the speed of the effect. Divided by delta for frame time consistencies (otherwise it'll get slower the worse your frames are)
                 local PseudoRandomIntensity = RandomFloat(0.25, 1.75) -- Randomness
 
-                local Strength = (math.lerp(0, 1, (Pressure - threshold)/(20 - threshold)) * Intensity) * PseudoRandomIntensity -- Figuring out how strong the effect should be overall
+                local Strength = (math.lerp(0, 1, (BwBEX.pressure - threshold)/(20 - threshold)) * Intensity) * PseudoRandomIntensity -- Figuring out how strong the effect should be overall
                 local arithmetic = Strength * (PressureSize * (math.sin(math.pi * DeltaSum))) -- The actual math in determining how much to add to the offset scale
                 
                 for tension, partTable in pairs(dict) do
@@ -158,7 +170,6 @@ function BwBEX:float(model, threshold, intensity, offset)
     if not intensity then intensity = 1 end
     if not offset then offset = 0 end
     threshold = math.clamp(threshold, 0, 1)
-    local LastFloatPressure = 0
     local FloatSpeed = 1 -- How fast the effect is
     local LastFloatDelta = client.getSystemTime()
 
@@ -168,11 +179,9 @@ function BwBEX:float(model, threshold, intensity, offset)
         local delta = GetDelta(LastFloatDelta)
 
         if not BwBEX.paused and context ~= "FIRST_PERSON" then
-            local Pressure = BwBAPI:getPressure()
-
-            if Pressure > (20*threshold) then
+            if BwBEX.pressure > (20*threshold) then
                 local deltaTime = (1/20 * (FloatSpeed/500)) / delta -- Modifying the speed of the effect. Divided by delta for frame time consistencies (otherwise it'll get slower the worse your frames are)
-                local Strength = (math.lerp(0.15, 1, (Pressure - (20*threshold))/(20 - (20*threshold))) * intensity) * 10 -- Figuring out how strong the effect should be overall, multiplied by 10 for simplicity's sake
+                local Strength = (math.lerp(0.15, 1, (BwBEX.pressure - (20*threshold))/(20 - (20*threshold))) * intensity) * 10 -- Figuring out how strong the effect should be overall, multiplied by 10 for simplicity's sake
 
                 local arithmetic = Strength * (math.sin(math.pi * DeltaFloatSum))
 
@@ -201,7 +210,7 @@ function BwBEX.smoothInflate:new(anim, smoothing)
     if not BwBEX.BwB then return end
     self = setmetatable({}, BwBEX)
     smoothing = math.max(1, smoothing)
-    
+
     self.targetTime = 0
     self.anim = anim
 
@@ -210,11 +219,10 @@ function BwBEX.smoothInflate:new(anim, smoothing)
     self.anim:pause()
     self.anim:setTime(0)
 
-    local LastClientTime = client.getSystemTime()
     function events.render()
-        local target = BwBAPI:getPressure() / 20
+        self.targetTime = (BwBEX.pressure / 20) * self.anim:getLength()
 
-        self.targetTime = target * self.anim:getLength()
+        if self.anim:getTime() == self.targetTime then return end -- This should not be running when the player is not inflating
 
         local mathz = self.anim:getTime() + (self.targetTime - self.anim:getTime()) / (smoothing)
 
