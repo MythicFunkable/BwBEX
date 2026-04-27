@@ -214,6 +214,7 @@ function BwBEX:float(model, blacklist, threshold, intensity, offset)
     if not threshold then threshold = 1/5 end
     if not intensity then intensity = 1 end
     if not offset then offset = 0 end
+    if not blacklist then blacklist = true end
     threshold = math.clamp(threshold, 0, 1)
     local FloatSpeed = 1 -- How fast the effect is
     local LastFloatDelta = client.getSystemTime()
@@ -221,6 +222,7 @@ function BwBEX:float(model, blacklist, threshold, intensity, offset)
     local DeltaFloatMax = 2
 
     local function VerifyBlacklist()
+        if not blacklist then return false end
         for _,value in pairs(BwBEX.floatEffectBlacklist) do
             local status = CheckForStatus(value)
 
