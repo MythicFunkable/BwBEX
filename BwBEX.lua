@@ -30,7 +30,12 @@ local BwBEX = {
     scraps = {},
     smoothInflate = {},
     pressureLink = {},
-    pressure = 0
+    pressure = 0,
+    maxPressure = 20,
+    floatEffectBlacklist = {
+        "better_with_blimps.juiced",
+        "better_with_blimps.waterlogged"
+    }
 }
 BwBEX.__index = BwBEX
 
@@ -82,12 +87,32 @@ local function CountDict(dict)
     return count
 end
 
--- Loops
-function events.tick()
-    BwBEX.paused = client:isPaused() and #world:getPlayers() < 2 and host:isHost()
+--- Function that checks for a specified status effect, returning `false` if none is found and `nil` if the player is not loaded
+---@param requested string The effect to look for
+local function CheckForStatus(requested)
+    if not player:isLoaded() then return end
 
-    if not BwBEX.paused then
-        BwBEX.pressure = GetPressure()
+    local effects = BwBEX.currentStatuses
+    if not effects then return nil end
+
+    for _,effect in pairs(effects) do
+        if string.find(effect.name, requested) then
+            return effect
+        end
+    end
+
+    return false
+end
+
+-- Main loop
+if BwBEX.BwB then
+    function events.tick()
+        BwBEX.paused = client:isPaused() and #world:getPlayers() < 2 and host:isHost()
+
+        if not BwBEX.paused then
+            BwBEX.pressure = GetPressure()
+            BwBEX.currentStatuses = host:getStatusEffects()
+        end
     end
 end
 
@@ -115,11 +140,11 @@ function BwBEX:vibrate(dict, threshold)
         local delta = GetDelta(LastStrainDelta) -- WHY DID YOU MAKE ME DO THIS.
 
         if not BwBEX.paused then            
-            if (BwBEX.pressure / 20) > threshold then
+            if (BwBEX.pressure / BwBEX.maxPressure) > threshold then
                 local deltaTime = (1/20 * (Speed/10)) / delta -- Modifying the speed of the effect. Divided by delta for frame time consistencies (otherwise it'll get slower the worse your frames are)
                 local PseudoRandomIntensity = RandomFloat(0.25, 1.75) -- Randomness
 
-                local Strength = (math.lerp(0, 1, (BwBEX.pressure - threshold)/(20 - threshold)) * Intensity) * PseudoRandomIntensity -- Figuring out how strong the effect should be overall
+                local Strength = (math.lerp(0, 1, (BwBEX.pressure - threshold)/(BwBEX.maxPressure - threshold)) * Intensity) * PseudoRandomIntensity -- Figuring out how strong the effect should be overall
                 local arithmetic = Strength * (PressureSize * (math.sin(math.pi * DeltaSum))) -- The actual math in determining how much to add to the offset scale
                 
                 for tension, partTable in pairs(dict) do
@@ -180,10 +205,11 @@ end
 
 ---Causes your body to float! Scales with pressure.
 ---@param model ModelPart The root folder of your model to float! Example: models["bbmodel"].root
+---@param blacklist boolean? Should this module be disabled while you possess certain status effects? (Check floatEffectBlacklist for the effects)
 ---@param threshold number? A percentage of the inflation in decimal form (a float from 0 to 1) that you want to begin floating at. Default is 0.2 (20%)
 ---@param intensity number? A value that determines how intense the effect is. It scales with your inflation linearly, so do keep that in mind! Default is 1.
 ---@param offset number? A value to determine the original offset of your model. This will help you keep the model from clipping into the floor when this module is active!
-function BwBEX:float(model, threshold, intensity, offset)
+function BwBEX:float(model, blacklist, threshold, intensity, offset)
     if not BwBEX.BwB then return end
     if not threshold then threshold = 1/5 end
     if not intensity then intensity = 1 end
@@ -191,16 +217,25 @@ function BwBEX:float(model, threshold, intensity, offset)
     threshold = math.clamp(threshold, 0, 1)
     local FloatSpeed = 1 -- How fast the effect is
     local LastFloatDelta = client.getSystemTime()
-
     local DeltaFloatSum = 0
     local DeltaFloatMax = 2
+
+    local function VerifyBlacklist()
+        for _,value in pairs(BwBEX.floatEffectBlacklist) do
+            local status = CheckForStatus(value)
+
+            if status then return true end
+        end
+
+        return false
+    end
     function events.render(_, context)
         local delta = GetDelta(LastFloatDelta)
 
         if not BwBEX.paused and context ~= "FIRST_PERSON" then
-            if BwBEX.pressure > (20*threshold) then
+            if BwBEX.pressure > (BwBEX.maxPressure*threshold) and not VerifyBlacklist() then
                 local deltaTime = (1/20 * (FloatSpeed/500)) / delta -- Modifying the speed of the effect. Divided by delta for frame time consistencies (otherwise it'll get slower the worse your frames are)
-                local Strength = (math.lerp(0.15, 1, (BwBEX.pressure - (20*threshold))/(20 - (20*threshold))) * intensity) * 10 -- Figuring out how strong the effect should be overall, multiplied by 10 for simplicity's sake
+                local Strength = (math.lerp(0.15, 1, (BwBEX.pressure - (BwBEX.maxPressure*threshold))/(BwBEX.maxPressure - (BwBEX.maxPressure*threshold))) * intensity) * 10 -- Figuring out how strong the effect should be overall, multiplied by 10 for simplicity's sake
 
                 local arithmetic = Strength * (math.sin(math.pi * DeltaFloatSum))
 
@@ -239,7 +274,7 @@ function BwBEX.smoothInflate:new(anim, smoothing)
     self.anim:setTime(0)
 
     function events.render()
-        self.targetTime = (BwBEX.pressure / 20) * self.anim:getLength()
+        self.targetTime = (BwBEX.pressure / BwBEX.maxPressure) * self.anim:getLength()
 
         if self.anim:getTime() == self.targetTime then return end -- This should not be running when the player is not inflating
 
@@ -300,7 +335,7 @@ function BwBEX.scraps:new(model, scraps, threshold)
         function events.world_tick()
             if not BwBEX.pressure then return end
 
-            if BwBEX.pressure > (20 * threshold) then
+            if BwBEX.pressure > (BwBEX.maxPressure * threshold) then
                 if dead == false and not player:isAlive() then
                     -- we just died
 
@@ -364,7 +399,7 @@ function BwBEX.pressureLink:new(threshold, linkFunc)
     self.threshold = threshold
 
     function events.world_tick()
-        if BwBEX.pressure > (20*threshold) then
+        if BwBEX.pressure > (BwBEX.maxPressure*threshold) then
             linkFunc(BwBEX.pressure)
         end
     end
