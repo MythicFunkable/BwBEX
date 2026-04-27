@@ -27,7 +27,9 @@
 local BwBEX = {
     paused = false,
     BwB = client:isModLoaded("better_with_blimps"),
+    scraps = {},
     smoothInflate = {},
+    pressureLink = {},
     pressure = 0
 }
 BwBEX.__index = BwBEX
@@ -44,16 +46,25 @@ local function GetDelta(LastClientTime)
 end
 
 local function GetPressure()
-    if player:isLoaded() then
+    if player:isLoaded() and BwBEX.BwB then
         local NBTAttribs = player:getNbt().Attributes
-        local Value
+        local AttributeName = "better_with_blimps:inflated_attribute"
 
-        for i,v in pairs(NBTAttribs) do
-            if NBTAttribs[i].Name == "better_with_blimps:inflated_attribute" then 
-                Value = NBTAttribs[i].Base
-                break
+        local function FetchNBTSlot()
+            for i,v in pairs(NBTAttribs) do
+                if NBTAttribs[i].Name == AttributeName then
+                    BwBEX.pressureSlot = i -- this search should only be needed once
+                    break
+                end
             end
         end
+
+        -- precaution
+        if not BwBEX.pressureSlot or NBTAttribs[BwBEX.pressureSlot].Name ~= AttributeName then
+            FetchNBTSlot()
+        end
+
+        local Value = NBTAttribs[BwBEX.pressureSlot].Base
 
         if not type(Value) == "number" or not Value then
             Value = 0
@@ -61,6 +72,14 @@ local function GetPressure()
 
         return Value
     end
+end
+
+local function CountDict(dict)
+    local count = 0
+    for _,__ in pairs(dict) do
+        count = count + 1
+    end
+    return count
 end
 
 -- Loops
@@ -161,7 +180,7 @@ end
 
 ---Causes your body to float! Scales with pressure.
 ---@param model ModelPart The root folder of your model to float! Example: models["bbmodel"].root
----@param threshold number? A percentage of the inflation meter that you want to begin floating at. Default is 0.2 (20%)
+---@param threshold number? A percentage of the inflation in decimal form (a float from 0 to 1) that you want to begin floating at. Default is 0.2 (20%)
 ---@param intensity number? A value that determines how intense the effect is. It scales with your inflation linearly, so do keep that in mind! Default is 1.
 ---@param offset number? A value to determine the original offset of your model. This will help you keep the model from clipping into the floor when this module is active!
 function BwBEX:float(model, threshold, intensity, offset)
@@ -236,5 +255,120 @@ function BwBEX.smoothInflate:new(anim, smoothing)
 
     return self
 end
+
+---Adds scrap models to inflated death if Confetti is located
+---@param model any The PRIMARY model. This may also be a table, incase you have multiple models to toggle.
+---@param scraps ModelPart The scraps model. Proper format provided in wiki
+---@param threshold number? A percentage of the inflation in decimal form (a float from 0 to 1) that you want the game to summon scraps at. Default is 0.5 (50%)
+function BwBEX.scraps:new(model, scraps, threshold)
+    if not threshold then threshold = 0.5 end
+
+    local Confetti
+    for _, path in ipairs(listFiles("/", true)) do
+        if string.find(path, "confetti") then Confetti = require(path) break end
+    end
+
+    if not Confetti then error("Confetti was not located in your model! Please add it before using this function") end
+    
+    --- 'False' is visible
+    local function UpdateModelVisibility(state)
+        local value = state and 1 or 0
+
+        if type(model) == "ModelPart" then
+            -- this is a model
+            model:setOpacity(value)
+        else
+            -- this is a table!
+            for _,part in pairs(model) do
+                part:setOpacity(value)
+            end
+        end
+    end
+
+    -- register meshes
+    local MeshTbl = {}
+
+    for index,child in pairs(scraps:getChildren()) do
+        -- register mesh
+        Confetti.registerMesh(child:getName(), child)
+        table.insert(MeshTbl, index, child:getName())
+    end
+    
+    function events.entity_init()
+        local dead = false -- internal dead variable
+
+        function events.world_tick()
+            if not BwBEX.pressure then return end
+
+            if BwBEX.pressure > (20 * threshold) then
+                if dead == false and not player:isAlive() then
+                    -- we just died
+
+                    -- make model invisible immediately
+                    UpdateModelVisibility(false)
+                    
+                    -- create particle
+                    for _,meshName in pairs(MeshTbl) do
+                        for i=0, math.random(16, 64), 1 do
+                            local Position = player:getPos():add(vec(math.random(-100, 100) / 75, math.random(0, 200) / 100, math.random(-100, 100) / 75))
+                            local Velocity = vec((math.random(-100, 100) / 100)  * 1.5, (math.random(-25, 100) / 100) * 1.5, (math.random(-100, 100) / 100)  * 1.5)
+                            
+                            local ScrapOptions = {
+                                lifetime = math.random(1200,2400),
+                                friction = 0.90,
+                                scale  = math.random(100,200) / 100,
+                                acceleration = vec(0,-0.025,0),
+                                rotation = vec(math.random(0,180),math.random(0,180),math.random(0,180)),
+                                rotationOverTime = vec(math.random(-10,10),math.random(-10,10),math.random(-10,10)),
+                                ticker = function(particle)
+                                    local x,y,z = particle.velocity:unpack()
+                                    if (world.getBlockState(particle._position+vec(x,0,0)):isSolidBlock() or world.getBlockState(particle._position-vec(x,0,0)):isSolidBlock() or world.getBlockState(particle._position+vec(0,y,0)):isSolidBlock() or world.getBlockState(particle._position-vec(0,y,0)):isSolidBlock() or world.getBlockState(particle._position+vec(0,0,z)):isSolidBlock() or world.getBlockState(particle._position-vec(0,0,z)):isSolidBlock()) then
+                                        if(particle.lifetime < particle.options["lifetime"] - 5) then
+                                        particle.velocity = vec(0,0,0)
+                                        particle.options["rotationOverTime"] = vec(0,0,0)
+                                        particle.options["acceleration"] = vec(0,0,0)
+                                        particle.options["friction"] = 0
+                                        end
+                                    end
+                                    Confetti.defaultTicker(particle)
+                                end
+                            }
+
+                            Confetti.newParticle(meshName, Position, Velocity, ScrapOptions)
+                        end
+                    end
+
+                    -- finally, set dead variable
+                    dead = true
+                end
+            end
+
+            if dead == true and player:isAlive() then
+                -- we just came back to life
+                -- update model visibility
+                UpdateModelVisibility(true)
+                -- update variable
+                dead = false
+            end
+        end
+    end
+end
+
+--- A function dedicated to creating pressure links. At the specified threshold, run the specified function. Simple!
+--- This function runs every WORLD tick! It may lag behind when the server you're playing on is struggling.
+--- Recommended to send a ping function through this, especially in regards to player changes.
+---@param threshold number The percent threshold, in decimal form, to start the link
+---@param linkFunc function The function you want to run at this threshold. Has an innate argument: the player's pressure.
+function BwBEX.pressureLink:new(threshold, linkFunc)
+    self.linkedFunction = linkFunc
+    self.threshold = threshold
+
+    function events.world_tick()
+        if BwBEX.pressure > (20*threshold) then
+            linkFunc(BwBEX.pressure)
+        end
+    end
+end
+
 
 return BwBEX
