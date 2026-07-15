@@ -23,13 +23,24 @@
 ]]
 
 ---@class BwBEX
----@return BwBEX
+---@field scraps table
+---@field smoothInflate table
+---@field pressureLink table
+---@field linkAnimation table
+---@field animateTexture table
+---@field vibrate table
+---@field float table
 local BwBEX = {
     paused = false,
     BwB = client:isModLoaded("better_with_blimps"),
     scraps = {},
     smoothInflate = {},
     pressureLink = {},
+    linkAnimation = {},
+    animateTexture = {},
+    overinflate = {},
+    vibrate = {},
+    float = {},
     pressure = 0,
     maxPressure = 20,
     floatEffectBlacklist = {
@@ -38,6 +49,7 @@ local BwBEX = {
     }
 }
 BwBEX.__index = BwBEX
+---@return BwBEX
 
 if not BwBEX.BwB then print("Better with Blimps is not installed! BwBEX is off") end
 
@@ -65,8 +77,16 @@ local function GetPressure()
         end
 
         -- precaution
-        if not BwBEX.pressureSlot or NBTAttribs[BwBEX.pressureSlot].Name ~= AttributeName then
-            FetchNBTSlot()
+        if player:isAlive() then
+            if not BwBEX.pressureSlot then
+                FetchNBTSlot()
+            end
+
+            if NBTAttribs[BwBEX.pressureSlot] then -- throws an error without this
+                if not NBTAttribs[BwBEX.pressureSlot].Name or NBTAttribs[BwBEX.pressureSlot].Name ~= AttributeName then
+                    FetchNBTSlot()
+                end
+            end
         end
 
         local Value = NBTAttribs[BwBEX.pressureSlot].Base
@@ -77,6 +97,8 @@ local function GetPressure()
 
         return Value
     end
+
+    return nil
 end
 
 local function CountDict(dict)
@@ -85,6 +107,33 @@ local function CountDict(dict)
         count = count + 1
     end
     return count
+end
+
+--- Returns a clone of a specified table
+---@param tbl table Table of contents to clone
+local function CloneTable(tbl)
+    local tbl_type = type(tbl)
+    local copy
+    if tbl_type == 'table' then
+        copy = {}
+        for tbl_key, tbl_value in pairs(tbl) do
+            copy[tbl_key] = tbl_value
+        end
+    else -- number, string, boolean, etc
+        copy = tbl
+    end
+    
+    return copy or nil
+end
+
+local function SearchTable(tbl, obj)
+    for index,value in ipairs(tbl) do
+        if value == obj then
+            return index, value
+        end
+    end
+    
+    return nil
 end
 
 --- Function that checks for a specified status effect, returning `false` if none is found and `nil` if the player is not loaded
@@ -106,10 +155,23 @@ end
 
 -- Main loop
 if BwBEX.BwB then
+    local PlayerAlive = true -- let's assume the player IS alive when the script starts
     function events.tick()
+        -- why do i have to check if the player is LOADED ALL THE TIME!!!!!!
+        if player:isLoaded() then
+            -- Pressure slot check that must be done for some reason
+            if not PlayerAlive and player:isAlive() then
+                -- on the last tick, we were dead, but now we're alive
+                BwBEX.pressureSlot = nil
+                BwBEX.pressure = 0
+            end
+            PlayerAlive = player:isAlive()
+        end
+        
+        -- Paused check
         BwBEX.paused = client:isPaused() and #world:getPlayers() < 2 and host:isHost()
 
-        if not BwBEX.paused then
+        if not BwBEX.paused and PlayerAlive then
             BwBEX.pressure = GetPressure()
             BwBEX.currentStatuses = host:getStatusEffects()
         end
@@ -122,34 +184,90 @@ end
 ---Credit to sufferneer!! Provide a dictionary of model parts to cause them to vibrate when your pressure reaches a specific threshold.
 ---@param dict table A dictionary of contents describing the intensity of the vibration effect on the selected model parts. Example of a valid dictionary will be provided below this function.
 ---@param threshold number? A percentage of the meter that must be filled before this effect become noticable. 0 is no pressure, 1 is max pressure. If no number is provided, the default is 0.6 (60%).
-function BwBEX:vibrate(dict, threshold)
+---@param options table? A table containing additional initial configurations for this object.
+function BwBEX.vibrate:new(dict, threshold, options)
     if not BwBEX.BwB then return end
-    if not threshold then threshold = 0.6 end
-    threshold = math.clamp(threshold, 0, 1)
-    local MaxPressureSize = 0.01 -- Maximum part size
-    local Speed = 1 -- Speed of the effect
-    local Intensity = 4 -- How intense the effect is overall
-    local Pressurized = false -- Determines if the parts should be reset to their original scales
-    local LastStrainDelta = client.getSystemTime()
 
+    self = setmetatable({}, BwBEX.vibrate)
+    self.__index = self
+    self.parts = dict
+    self.threshold = math.clamp(threshold, 0, 1) or 0.6
+    self.MaxPressureSize = 0.01
+    self.Speed = 1
+    self.strainIntensity = 1
+    self.shakeIntensity = 1
+    self.rotationAngle = 2
+
+    if options then -- throws an error without this
+        self.Speed = options.Speed or 1
+        self.strainIntensity = options.strainIntensity or 1
+        self.shakeIntensity = options.shakeIntensity or 1
+        self.rotationAngle = options.rotationAngle or 2
+    end
+    
+    local Pressurized = false
+    local LastStrainDelta = client.getSystemTime()
     local DeltaSum = 0
     local MaxSum = 1
-    local PressureSize = RandomFloat(0.0025, MaxPressureSize)
+    local PressureSize = RandomFloat(0.0025, self.MaxPressureSize)
+
+    local GoalRotations = {}
+
+    local function ResetGoalRotations()
+        GoalRotations = {}
+        
+        if self.rotationAngle == 0 then return end -- means this module is DISABLED!
+
+        for _,object in pairs(self.parts) do
+            for _,part in pairs(object) do
+                GoalRotations[part] = vec(RandomFloat(-self.rotationAngle, self.rotationAngle), RandomFloat(-self.rotationAngle, self.rotationAngle), RandomFloat(-self.rotationAngle, self.rotationAngle))
+            end
+        end
+    end
+
+    ResetGoalRotations()
+
+    local function SetScaleOfPart(part, scale)
+        if type(part) == "ModelPart" then
+            -- this is a part!
+            part:setOffsetScale(scale)
+        else
+            -- this is a table!
+            for _,object in pairs(part) do
+                object:setOffsetScale(scale)
+            end
+        end
+    end
+
+    local function SetRotOfPart(part, rotation)
+        if type(part) == "ModelPart" then
+            -- this is a part!
+            part:setOffsetRot(rotation)
+        else
+            -- this is a table!
+            for _,object in pairs(part) do
+                object:setOffsetRot(rotation)
+            end
+        end
+    end
 
     function events.render()
         local delta = GetDelta(LastStrainDelta) -- WHY DID YOU MAKE ME DO THIS.
+        local PseudoRandomIntensity = RandomFloat(0.25, 2) -- Randomness
+        local CurrentThreshold = BwBEX.pressure/BwBEX.maxPressure
 
         if not BwBEX.paused then            
-            if (BwBEX.pressure / BwBEX.maxPressure) > threshold then
-                local deltaTime = (1/20 * (Speed/10)) / delta -- Modifying the speed of the effect. Divided by delta for frame time consistencies (otherwise it'll get slower the worse your frames are)
-                local PseudoRandomIntensity = RandomFloat(0.25, 1.75) -- Randomness
+            if CurrentThreshold >= self.threshold then
+                local deltaTime = (1/20 * (self.Speed/10)) / delta -- Modifying the speed of the effect. Divided by delta for frame time consistencies (otherwise it'll get slower the worse your frames are)
 
-                local Strength = (math.lerp(0, 1, (BwBEX.pressure - threshold)/(BwBEX.maxPressure - threshold)) * Intensity) * PseudoRandomIntensity -- Figuring out how strong the effect should be overall
-                local arithmetic = Strength * (PressureSize * (math.sin(math.pi * DeltaSum))) -- The actual math in determining how much to add to the offset scale
+                -- computing 
+                local Strength = math.lerp(0, 1, (CurrentThreshold-self.threshold)/(1-self.threshold)) -- Figuring out how strong the effect should be overall
+                local arithmetic = ((Strength * PseudoRandomIntensity) * (PressureSize * (math.sin(math.pi * DeltaSum)))) -- The actual math in determining how much to add to the offset scale
                 
-                for tension, partTable in pairs(dict) do
+                for tension, partTable in pairs(self.parts) do
                     for _,part in pairs(partTable) do
-                        part:setOffsetScale(1 + (arithmetic * tension))
+                        SetScaleOfPart(part, 1 + (arithmetic * (self.strainIntensity * tension)))
+                        SetRotOfPart(part, (GoalRotations[part] or vec(0,0,0)) * ((arithmetic * 20) * (self.shakeIntensity * tension))) -- arithmetic * 20 makes it ROUGHLY visible, since arithmetic is way too small for it
                     end
                 end
 
@@ -160,9 +278,11 @@ function BwBEX:vibrate(dict, threshold)
                 end
             else
                 if Pressurized then
-                    for _,partTable in pairs(dict) do
+                    for _,partTable in pairs(self.parts) do
                         for _,part in pairs(partTable) do
-                            part:setOffsetScale(1)
+                            -- part:setOffsetScale(1)
+                            SetScaleOfPart(part, 1)
+                            SetRotOfPart(part, vec(0, 0, 0))
                         end
                     end
                     Pressurized = false
@@ -172,12 +292,25 @@ function BwBEX:vibrate(dict, threshold)
             if DeltaSum > MaxSum then
                 DeltaSum = 0
                 -- Make a new pseudo random part size for the next one
-                PressureSize = RandomFloat(0.0025, MaxPressureSize)
+                PressureSize = RandomFloat(0.0025, self.MaxPressureSize)
+                -- GoalRot = vec(RandomFloat(0, 2), RandomFloat(0, 2), RandomFloat(0, 2))
+                ResetGoalRotations()
+                PseudoRandomIntensity = RandomFloat(0.25, 2)
             end
         end
 
         LastStrainDelta = client.getSystemTime()
     end
+
+    function events.world_tick()
+        local math = BwBEX.pressure/BwBEX.maxPressure
+
+        if math ~= CurrentThreshold then
+            CurrentThreshold = math
+        end
+    end
+
+    return self
 end
 
 --[[
@@ -209,20 +342,24 @@ end
 ---@param threshold number? A percentage of the inflation in decimal form (a float from 0 to 1) that you want to begin floating at. Default is 0.2 (20%)
 ---@param intensity number? A value that determines how intense the effect is. It scales with your inflation linearly, so do keep that in mind! Default is 1.
 ---@param offset number? A value to determine the original offset of your model. This will help you keep the model from clipping into the floor when this module is active!
-function BwBEX:float(model, blacklist, threshold, intensity, offset)
+function BwBEX.float:new(model, blacklist, threshold, intensity, offset)
     if not BwBEX.BwB then return end
-    if not threshold then threshold = 1/5 end
-    if not intensity then intensity = 1 end
-    if not offset then offset = 0 end
-    if not blacklist then blacklist = true end
-    threshold = math.clamp(threshold, 0, 1)
-    local FloatSpeed = 1 -- How fast the effect is
+
+    self = setmetatable({}, BwBEX.float)
+    self.__index = self
+    self.threshold = math.clamp(threshold, 0, 1) or (1/5)
+    self.intensity = intensity or 1
+    self.blacklist = blacklist or true
+    self.offset = offset or 1.5
+    self.speed = 1 -- How fast the effect is
+
     local LastFloatDelta = client.getSystemTime()
     local DeltaFloatSum = 0
     local DeltaFloatMax = 2
 
     local function VerifyBlacklist()
-        if not blacklist then return false end
+        if not self.blacklist then return false end
+
         for _,value in pairs(BwBEX.floatEffectBlacklist) do
             local status = CheckForStatus(value)
 
@@ -231,20 +368,22 @@ function BwBEX:float(model, blacklist, threshold, intensity, offset)
 
         return false
     end
+
     function events.render(_, context)
         local delta = GetDelta(LastFloatDelta)
+        local CurrentThreshold = BwBEX.pressure/BwBEX.maxPressure
 
         if not BwBEX.paused and context ~= "FIRST_PERSON" then
-            if BwBEX.pressure > (BwBEX.maxPressure*threshold) and not VerifyBlacklist() then
-                local deltaTime = (1/20 * (FloatSpeed/500)) / delta -- Modifying the speed of the effect. Divided by delta for frame time consistencies (otherwise it'll get slower the worse your frames are)
-                local Strength = (math.lerp(0.15, 1, (BwBEX.pressure - (BwBEX.maxPressure*threshold))/(BwBEX.maxPressure - (BwBEX.maxPressure*threshold))) * intensity) * 10 -- Figuring out how strong the effect should be overall, multiplied by 10 for simplicity's sake
+            if BwBEX.pressure > (BwBEX.maxPressure*self.threshold) and not VerifyBlacklist() then
+                local deltaTime = (1/20 * (self.speed/500)) / delta -- Modifying the speed of the effect. Divided by delta for frame time consistencies (otherwise it'll get slower the worse your frames are)
+                local Strength = math.lerp(0, 1, (CurrentThreshold-self.threshold)/(1-self.threshold)) -- Figuring out how strong the effect should be overall
 
-                local arithmetic = Strength * (math.sin(math.pi * DeltaFloatSum))
+                local arithmetic = ((Strength * self.intensity) * (math.sin(math.pi * DeltaFloatSum)))
 
                 -- uhhhhHhhh time management i think,
                 DeltaFloatSum = DeltaFloatSum + deltaTime
 
-                model:setPos(vec(0, arithmetic+offset, 0))
+                model:setPos(vec(0, arithmetic+(self.offset * Strength), 0))
             else
                 DeltaFloatSum = 0
                 model:setPos(vec(0, 0, 0))
@@ -257,18 +396,23 @@ function BwBEX:float(model, blacklist, threshold, intensity, offset)
 
         LastFloatDelta = client.getSystemTime()
     end
+
+    return self
 end
 
----Credit to psq95!! Smooths out your inflation depending on the provided smoothing value. Designed to REPLACE the existing animinflate from the BwBAPI! Called as a variable, which returns the target time.
+--- Credit to psq95!
+--- Smooths out your inflation depending on the provided smoothing value. Designed to REPLACE the existing animinflate from the BwBAPI! Called as a variable, which returns the target time.
 ---@param anim Animation The inflation animation to link to this function
----@param smoothing number A smoothing value for the inflation animation.
+---@param smoothing number? A smoothing value for the inflation animation. Default is 40.
 function BwBEX.smoothInflate:new(anim, smoothing)
     if not BwBEX.BwB then return end
-    self = setmetatable({}, BwBEX)
-    smoothing = math.max(1, smoothing)
+    self = setmetatable({}, BwBEX.smoothInflate)
+    self.__index = self
 
     self.targetTime = 0
     self.anim = anim
+    self.smoothing = smoothing or 40
+    self.smoothing = math.max(1, self.smoothing)
 
     -- setup animation
     self.anim:play()
@@ -280,7 +424,7 @@ function BwBEX.smoothInflate:new(anim, smoothing)
 
         if self.anim:getTime() == self.targetTime then return end -- This should not be running when the player is not inflating
 
-        local mathz = self.anim:getTime() + (self.targetTime - self.anim:getTime()) / (smoothing)
+        local mathz = self.anim:getTime() + (self.targetTime - self.anim:getTime()) / (self.smoothing)
 
         if mathz > self.anim:getLength() then
             error(string.format("Value 'mathz' tried to go above the maximum:\n%s vs %s", mathz, self.anim:getLength()))
@@ -294,11 +438,17 @@ function BwBEX.smoothInflate:new(anim, smoothing)
 end
 
 ---Adds scrap models to inflated death if Confetti is located
----@param model any The PRIMARY model. This may also be a table, incase you have multiple models to toggle.
+---@param model ModelPart|table The PRIMARY model. This may also be a table, incase you have multiple models to toggle.
 ---@param scraps ModelPart The scraps model. Proper format provided in wiki
 ---@param threshold number? A percentage of the inflation in decimal form (a float from 0 to 1) that you want the game to summon scraps at. Default is 0.5 (50%)
 function BwBEX.scraps:new(model, scraps, threshold)
-    if not threshold then threshold = 0.5 end
+    if not BwBEX.BwB then return end
+
+    self = setmetatable({}, BwBEX.scraps)
+    self.__index = self
+    self.model = model
+    self.scraps = scraps
+    self.threshold = math.clamp(threshold, 0, 1) or 0.5
 
     local Confetti
     for _, path in ipairs(listFiles("/", true)) do
@@ -313,10 +463,10 @@ function BwBEX.scraps:new(model, scraps, threshold)
 
         if type(model) == "ModelPart" then
             -- this is a model
-            model:setOpacity(value)
+            self.model:setOpacity(value)
         else
             -- this is a table!
-            for _,part in pairs(model) do
+            for index,part in ipairs(self.model) do
                 part:setOpacity(value)
             end
         end
@@ -325,7 +475,7 @@ function BwBEX.scraps:new(model, scraps, threshold)
     -- register meshes
     local MeshTbl = {}
 
-    for index,child in pairs(scraps:getChildren()) do
+    for index,child in pairs(self.scraps:getChildren()) do
         -- register mesh
         Confetti.registerMesh(child:getName(), child)
         table.insert(MeshTbl, index, child:getName())
@@ -394,18 +544,326 @@ end
 --- A function dedicated to creating pressure links. At the specified threshold, run the specified function. Simple!
 --- This function runs every WORLD tick! It may lag behind when the server you're playing on is struggling.
 --- Recommended to send a ping function through this, especially in regards to player changes.
----@param threshold number The percent threshold, in decimal form, to start the link
+---@param threshold number The percent threshold on the inflation meter, in decimal form, to start the link
 ---@param linkFunc function The function you want to run at this threshold. Has an innate argument: the player's pressure.
 function BwBEX.pressureLink:new(threshold, linkFunc)
+    if not BwBEX.BwB then return end
+    self = setmetatable({}, BwBEX.pressureLink)
+    self.__index = self
     self.linkedFunction = linkFunc
     self.threshold = threshold
+    self.active = nil -- nil because we want this to update once on first run
 
     function events.world_tick()
-        if BwBEX.pressure > (BwBEX.maxPressure*threshold) then
-            linkFunc(BwBEX.pressure)
+        local active = BwBEX.pressure > (BwBEX.maxPressure*threshold) -- check if the current pressure is past the specified threshold
+
+        if active ~= self.active or not self.active then -- if it needs to be checked
+            linkFunc(active) -- run the linked function
+            self.active = active -- save this so we don't run this function twice
+        end
+    end
+
+    return self
+end
+
+--- Credit to Sufferneer once again!
+--- A function that will play a dedicated animation inbetween a specific period of time. 
+--- Good for animations that will play when you reach a certain size (e.g. your butt suddenly inflating)
+---@param anim Animation The animation you want to play at the specified size.
+---@param threshold number? The percent threshold on the inflation meter, in decimal form, that you want the linked animation to play at. Default is 0.3 (30%).
+---@param sound string|table? If you want to play a sound when you inflate, provide a string matching a sound OR a table containing a sound and its' attributes! Proper layout of a sound table is in the wiki.
+function BwBEX.linkAnimation:new(anim, threshold, sound)
+    if not BwBEX.BwB then return end
+    if not anim then error("No animation provided to linkAnimation function!") end
+    
+    self = setmetatable({}, BwBEX.linkAnimation)
+    self.__index = self
+    self.animation = anim
+    self.threshold = threshold or 0.3
+    self.active = false
+    self.sound = sound    
+
+    function events.world_tick()
+        if BwBEX.paused then return end
+        local current = BwBEX.pressure / BwBEX.maxPressure
+
+        if current >= self.threshold then
+            if not self.active then
+                self.animation:play()
+
+                if self.sound then
+                    -- we have a sound
+                    if type(self.sound) == "string" then
+                        -- this is a sound!
+                        sounds:playSound(self.sound, player:getPos(), 2, 0.8)
+                    else
+                        -- this is a table of sound settings!
+                        sounds:playSound(self.sound.Name, player:getPos(), self.sound.Volume or 2, self.sound.Pitch or 0.8)
+                    end
+                end
+
+                self.active = true
+            end
+        else
+            if self.active then
+                self.animation:stop()
+                self.active = false
+            end
+        end
+    end
+
+    return self
+end
+
+--[[
+
+    Sound settings table
+    {
+        Name = "minecraft:ui.toast.in",
+        Volume = 1.5,
+        Pitch = 0.8
+    }
+
+]]
+
+local defaultTextureConfig = {
+    Speed = 1, -- The overall speed at which this effect will occur
+    MaxThreshold = 0.6, -- The percent of the meter that you want this effect to reach the specified speed at.
+    -- StartingPixel = vec(0, 0) -- The pixel that you want this effect to ALWAYS start at.
+    -- Method
+}
+--- Credit to Sufferneer!
+--- BUGGY, WORK IN PROGRESS!!!
+--- This is *supposed* to be a function that will *attempt* to create a texture transition effect to change your skin while under a status effect.
+--- Provide a model, the original texture, the effect texture, and some settings, then allow this library to do the rest!
+--- Note: this function becomes faster the more inflated you are.
+---@param model ModelPart The original model to be used for texture switching.
+---@param originalTexture string The name of the original texture the model is currently using.
+---@param newTexture string The name of the new texture that you want this model to switch to.
+---@param effect string The name of a valid status effect that you want this function to check for.
+---@param config table? A dictionary containing additional settings for this effect. A default table will otherwise be used.
+function BwBEX.animateTexture:new(model, originalTexture, newTexture, effect, config)
+    if not BwBEX.BwB then return end
+    -- if not config then config = defaultTextureConfig end
+    self = setmetatable({}, BwBEX.animateTexture)
+    self.__index = self
+    -- Variable setup
+    self.model = model
+    self.originalTexture = textures:copy(string.format("%s_Original", effect), textures[originalTexture])
+    self.newTexture = textures:copy(string.format("%s_New", effect), textures[newTexture])
+    self.mixedTexture = textures:copy(string.format("%s_Mixed", effect), textures[originalTexture])
+    self.effect = effect
+    self.config = config or CloneTable(defaultTextureConfig)
+
+    local TextureDimensions = self.originalTexture:getDimensions()
+    
+    local UnmodifiedPixels = {}
+
+    local function ResetUnmodifiedPixels()
+        for i=0, TextureDimensions.x-1, 1 do
+            for o=0, TextureDimensions.y-1, 1 do
+                table.insert(UnmodifiedPixels, vec(i, o))
+            end
+        end
+    end
+
+    ResetUnmodifiedPixels()
+
+    -- Function
+    local function UpdateTexture()
+        local AlignmentTable = {
+            [0] = vec(0, 0),
+            [1] = vec(0, 1),
+            [2] = vec(1, 1),
+            [3] = vec(1, 0),
+            [4] = vec(1, -1),
+            [5] = vec(0, -1),
+            [6] = vec(-1, -0),
+            [7] = vec(-1, 0),
+            [8] = vec(-1, 1),
+            [9] = vec(-1, -1)
+        }
+
+        local function UpdatePixel(vector, index)
+            if #UnmodifiedPixels == 0 then return end -- STOP TRYING TO UPDATE THERE LITERALLY AREN'T ANY MORE
+            local sanitizedVector = vec(math.clamp(vector.x, 0, TextureDimensions.x-1), math.clamp(vector.y, 0, TextureDimensions.y-1))
+
+            local pixel = self.newTexture:getPixel(sanitizedVector.x, sanitizedVector.y)
+
+            -- pixel check
+            if self.config.RandomPixels then
+                if self.newTexture:getPixel(sanitizedVector.x, sanitizedVector.y) == pixel then
+                    -- the color data here is the same, so get a different one
+                    local number = math.random(0, #UnmodifiedPixels)
+                    sanitizedVector = UnmodifiedPixels[number]
+                    index = number
+                    pixel = self.newTexture:getPixel(sanitizedVector.x, sanitizedVector.y)
+                end
+            end
+
+            -- get the colors
+            local Colors = vec(pixel.r, pixel.g, pixel.b, pixel.a)
+            -- set new pixel
+            -- print(sanitizedVector)
+            self.mixedTexture:setPixel(sanitizedVector.x, sanitizedVector.y, Colors)
+            -- update texture
+            self.mixedTexture:update()
+
+            table.remove(UnmodifiedPixels, index)
+        end
+
+        --[[
+        
+            TODO
+            1. select a random pixel
+            2. move once outside of it
+            3. color in that pixel
+        
+        ]]
+
+        if self.mixedTexture ~= self.newTexture then
+            for i=1, 5 do
+                local index = math.random(0, #UnmodifiedPixels)
+                local alignmentVector = UnmodifiedPixels[index]
+
+                for _,value in pairs(AlignmentTable) do
+                    UpdatePixel(alignmentVector + value, index)
+                    UpdatePixel(alignmentVector + (value * 2), index)
+                end
+            end
+
+            self.model:setPrimaryTexture("CUSTOM", self.mixedTexture)
+        end
+    end
+
+    -- local function SendTextureToServer(texture)
+    --     self.model:setPrimaryTexture("CUSTOM", texture)
+    -- end
+
+    -- pings.SendTextureToServer = SendTextureToServer
+
+    -- Primary function loop
+    local threshold = BwBEX.maxPressure*self.config.MaxThreshold
+    local CurrentSpeed = math.clamp(self.config.Speed * (BwBEX.pressure/threshold), 2, 10)
+    local defaultTimer = 1
+    local pingCounter = 0
+    local timer = defaultTimer / CurrentSpeed
+    local LastTexTime = client.getSystemTime()
+    local eff = nil
+    local active = false
+    function events.render()
+        if BwBEX.paused then return end
+        local delta = GetDelta(LastTexTime)
+        if timer <= 0 and eff then
+            UpdateTexture()
+
+            -- pingCounter = pingCounter + 1
+            -- if pingCounter >= 10 then
+            --     pingCounter = 0
+            --     pings.SendTextureToServer(self.mixedTexture)
+            -- end
+            
+            timer = defaultTimer / CurrentSpeed
+            if not active then active = true end
+        else
+            if not eff and active then
+                -- we don't have the effect
+                UnmodifiedPixels = {} -- empty the table 
+                self.model:setPrimaryTexture("CUSTOM", self.originalTexture) -- reset texture to original
+                -- pings.SendTextureToServer(self.originalTexture)
+                self.mixedTexture = textures:copy(string.format("%s_Mixed", effect), textures[originalTexture]) -- reset mixed texture
+                ResetUnmodifiedPixels()
+                active = false
+            end
+            
+            timer = timer - delta
+        end
+
+        LastTexTime = client.getSystemTime()
+    end
+
+    function events.tick()
+        eff = CheckForStatus(self.effect)
+        CurrentSpeed = math.clamp(self.config.Speed * (BwBEX.pressure/threshold), 2, 10) -- set speed
+    end
+
+    return self
+end
+
+--- Credit to psq95, to CatChris for the code, and to spritesodaguzzler for the idea (unintentionally)!
+--- Creates a smoothed overinflation animation, and is also responsible for strain.
+---@param strain Animation Plays this animation when your body 'strains' or overinflates.
+---@param overinflation Animation? An overinflation animation. Consider this an imaginary secondary layer to your initial inflation.
+---@param points number? If the overinflation is an imaginary layer, then this is considered its' limit. Each time your character is overinflated, this value goes up by 1. It resets when you return to normal levels of inflation. Default value: 5
+---@param smoothing number? A smoothing value for the inflation animation. Default is 20.
+---@param factor number? When your character overinflates, I attempted to create a simple 'pwoom!' effect to signify impact. This determines the factor by which the impact occurs. Default value: 2
+function BwBEX.overinflate:new(strain, overinflation, points, smoothing, factor)
+    if not BwBEX.BwB then return end
+    self = setmetatable({}, BwBEX.overinflate)
+    self.__index = self
+
+    self.strainAnim = strain
+    self.overinflateAnim = overinflation
+    self.maxPoints = points or 5
+    self.targetTime = 0
+    self.points = 0
+    self.factor = factor or 2
+    self.factor = math.max(1, self.factor)
+
+    self.smoothing = smoothing or 20
+    self.smoothing = math.max(1, self.smoothing)
+
+    local NextOverinflate = false
+
+    function events.on_play_sound(id, pos, vol, pitch, loop, category)
+        if not player:isLoaded() then return end
+
+        if id:find("overinflate") and (pos - player:getPos()):length() < 1 and BwBEX.pressure >= BwBEX.maxPressure then
+            if self.strainAnim:isPlaying() then
+                self.strainAnim:stop()
+            end
+            self.strainAnim:play()
+
+            self.points = math.clamp((self.points + 1), 0, self.maxPoints)
+
+            NextOverinflate = true
+        end
+    end
+
+    if self.overinflateAnim then
+        -- setup overinflation animation
+        self.overinflateAnim:play()
+        self.overinflateAnim:pause()
+        self.overinflateAnim:setTime(0)
+        function events.tick()
+            if BwBEX.pressure < BwBEX.maxPressure and self.points ~= 0 then
+                -- reset all points
+                self.points = 0
+            end
+        end
+
+        function events.render()
+            -- self.targetTime = (BwBEX.pressure / BwBEX.maxPressure) * self.anim:getLength()
+            self.targetTime = (self.points / self.maxPoints) * self.overinflateAnim:getLength()
+
+            if self.overinflateAnim:getTime() == self.targetTime then return end -- This should not be running when the player is not inflating
+
+            if NextOverinflate then
+                local overinflateExtraMath = math.clamp((self.targetTime * self.factor), 0, self.overinflateAnim:getLength())
+                self.overinflateAnim:setTime(overinflateExtraMath)
+                NextOverinflate = false
+            end
+
+            local mathz = self.overinflateAnim:getTime() + (self.targetTime - self.overinflateAnim:getTime()) / (self.smoothing)
+
+            if mathz > self.overinflateAnim:getLength() then
+                error(string.format("Value 'mathz' tried to go above the maximum:\n%s vs %s", mathz, self.overinflateAnim:getLength()))
+            end
+
+            mathz = math.clamp(mathz, 0, self.overinflateAnim:getLength()) -- Clamp the value
+            self.overinflateAnim:setTime(mathz)
         end
     end
 end
-
 
 return BwBEX
