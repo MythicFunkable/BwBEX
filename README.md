@@ -113,7 +113,7 @@ When you inflate past your limit, the game causes damage and plays a sound. This
 Parameter | Description
 -- | --
 strain | `Animation` The animation you want to play when you overinflate.
-overinflation | `Animation` The animation you want to link to your 'secondary' inflation layer.
+overinflation❔ | `Animation` The animation you want to link to your 'secondary' inflation layer.
 points❔ | `number` If the overinflation animation you provided in the last argument is a second inflation layer, then this is its' maximum. Default: 5
 smoothing❔ | `number` Functionally similar to .smoothInflate:new()'s variable of the same name. The overinflation layer is smoothed in the same manner. Default value: 20
 factor❔ | `number` I attempted to create an effect that causes your body to suddenly bulge outward when you overinflate, then return to a specified target. Default value: 2. Set this value to 1 or lower to disable this effect.
