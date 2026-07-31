@@ -12,7 +12,7 @@ Credits are located within the primary lua script, and is also spread throughout
 ```lua
 local BwBEX = require("BwBEX")
 ```
-3. Check out the [wiki](https://github.com/MythicFunkable/BwBEX/wiki) to see all of what this script has to offer!
+3. Scroll down to see all of what this script has to offer!
 
 Congratulations, you're ready to go!! Don't forget to have fun~
 
