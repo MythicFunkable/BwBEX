@@ -630,9 +630,8 @@ end
 --- Good for animations that will play when you reach a certain size (e.g. your butt suddenly inflating)
 ---@param anim Animation The animation you want to play at the specified size.
 ---@param threshold number? The percent threshold on the inflation meter, in decimal form, that you want the linked animation to play at. Default is 0.3 (30%).
----@param chanceDenominator integer? The DENOMINATOR of a division operation that will determine the chance of this module activating after the specified threshold. Number is rounded to nearest integer. Default is 1
----@param message string|table? Do you want a specialized chat message to be sent when this module activates? Provide a string!
-function BwBEX.linkAnimation:new(anim, threshold, chanceDenominator, message)
+---@param message string|table? Do you want a specialized chat message to be sent when this module activates? Provide a string or a table, and it'll choose a message and make you chat it!
+function BwBEX.linkAnimation:new(anim, threshold, message)
     if not BwBEX.BwB then return end
     if not anim then error("No animation provided to linkAnimation function!") end
     
@@ -641,8 +640,7 @@ function BwBEX.linkAnimation:new(anim, threshold, chanceDenominator, message)
     self.animation = anim
     self.threshold = threshold or 0.3
     self.active = false 
-    self.sound = sound
-    self.chance = math.round(chanceDenominator) or 1
+    self.chance = 1
     self.message = message
     self.chattable = true
     self.eyes = 1
@@ -657,17 +655,6 @@ function BwBEX.linkAnimation:new(anim, threshold, chanceDenominator, message)
             local function SetAsActive()
                 if not self.active then
                     self.animation:play()
-
-                    -- if self.sound then
-                    --     -- we have a sound
-                    --     if type(self.sound) == "string" then
-                    --         -- this is a sound!
-                    --         sounds:playSound(self.sound, player:getPos(), 2, 0.8)
-                    --     else
-                    --         -- this is a table of sound settings!
-                    --         sounds:playSound(self.sound.Name, player:getPos(), self.sound.Volume or 2, self.sound.Pitch or 0.8)
-                    --     end
-                    -- end
 
                     if self.message and self.chattable then
                         local Symbols = {"@", "O", "-", "><", "<>"}
@@ -944,7 +931,7 @@ function BwBEX.overinflate:new(overinflation, strain)
     -- variable setting
     self.strainAnim = strain
     self.overinflateAnim = overinflation
-    self.maxPoints = 5
+    self.maxPoints = 12
     self.targetTime = 0
     self.points = 0
     self.factor = 2 -- Set to 1 to disable this effect
