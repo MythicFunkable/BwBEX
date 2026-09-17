@@ -87,35 +87,114 @@ scraps | `ModelPart` The path to your SCRAPS model. Check out Honest John for a 
 threshold❔ | `number` A percentage (number from 0 to 1) of the inflation meter that must be filled before death causes scraps to spawn. Default is 0.5 (50%).
 
 ## `.pressureLink:new(threshold, linkFunc)`
-Runs the provided function every world tick so long as your inflation value is around or above the specified threshold of the meter.
+Runs the provided function once so long as your inflation value is around or above the specified threshold of the meter.
 
-Parameter | Description
--- | --
-threshold | `number` A percentage (number from 0 to 1) of the inflation meter that must be filled before this function starts firing. **No default.**
-linkFunc | `function` A function you want to run on every WORLD tick
-
-No demonstration available.
-
-## `.linkAnimation:new(anim, threshold?, sound?`)
-Causes an animation to play at, or above, the specified threshold. You can also provide a sound.
-
-Parameter | Description
--- | --
-anim | `Animation` The animation you want to play at this specific threshold. It will be cancelled when you escape this threshold (e.g. deflate before its' threshold).
-threshold❔ | `number` A percentage (number from 0 to 1) of the inflation meter that must be filled before this animation plays. Default value: 0.3 (30%)
-sound❔ | `string OR table` Provide the name of a sound or a dictionary containing a sound and its' attributes that should fire when this animation plays.
+| **Parameter** | **Description**                                                                                                                           |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| threshold     | `number` A percentage (number from 0 to 1) of the inflation meter that must be filled before this function starts firing. **No default.** |
+| linkFunc      | `function` A function you want to run when the threshold is met                                                                           |
 
 No demonstration available
 
-## `.overinflate:new(strain, overinflation?, points?, smoothing?, factor?)`
-When you inflate past your limit, the game causes damage and plays a sound. This function enables you to play an animation *when the sound plays.* There is also an optional 'overinflation' feature that takes a specified animation and uses it as a *secondary* inflation layer each time you strain.
+## `.pressureLoop:new(threshold, linkFunc)`
+Runs the provided function EVERY world tick so long as your inflation value is around or above the specified threshold of the meter.
 
-Parameter | Description
--- | --
-strain | `Animation` The animation you want to play when you overinflate.
-overinflation❔ | `Animation` The animation you want to link to your 'secondary' inflation layer.
-points❔ | `number` If the overinflation animation you provided in the last argument is a second inflation layer, then this is its' maximum. Default: 5
-smoothing❔ | `number` Functionally similar to .smoothInflate:new()'s variable of the same name. The overinflation layer is smoothed in the same manner. Default value: 20
-factor❔ | `number` I attempted to create an effect that causes your body to suddenly bulge outward when you overinflate, then return to a specified target. Default value: 2. Set this value to 1 or lower to disable this effect.
+| **Parameter** | **Description**                                                                                                                           |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| threshold     | `number` A percentage (number from 0 to 1) of the inflation meter that must be filled before this function starts firing. **No default.** |
+| linkFunc      | `function` A function you want to run on every WORLD tick provided that the threshold is met.                                             |
+
+No demonstration available
+
+## `.linkAnimation:new(anim, threshold?, chanceDenominator?, message?)`
+Causes an animation to play at, or above, the specified threshold. You can also provide a sound.
+
+| **Parameter** | **Description**                                                                                                                                                                                                                                                                                       |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| anim          | `Animation` The animation you want to play at this specific threshold. *It will be cancelled when you escape this threshold (e.g. deflate before its' threshold).*                                                                                                                                    |
+| threshold❔    | `number` A percentage (number from 0 to 1) of the inflation meter that must be filled before this animation plays. Default value: 0.3 (30%)                                                                                                                                                           |
+| message❔      | `string OR table` Provide a string, or a table of strings, and a message will be sent in the chat when this animation plays! Best used for making an animation where your body puffs up or a cosmetic is blown clean off of your body. Animation works best as a `Hold on Last Frame` type animation. |
+
+This function also has its' own attributes. Modify them by assigning this function as a variable.
+
+| **Attribute** | **Description**                                                                                                                                                                       |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| chance        | `integer` Imagine this as a number to determine the chances of this animation firing at the specified threshold. *Example: There is a 1 in X chance that this animation should fire!* |
+| chattable     | `boolean` Determines whether or not any message should be displayed with this animation.                                                                                              |
+
+No demonstration available
+
+## `.overinflate:new(overinflation, strain?)`
+When you inflate past your limit, the game causes damage and plays a sound. This function can play an animation *when the sound plays.* There is also an optional 'overinflation' feature that takes a specified animation that behaves as a *secondary* inflation layer each time you strain.
+
+| Parameter     | Description                                                                     |
+| ------------- | ------------------------------------------------------------------------------- |
+| strain❔       | `Animation` The animation you want to play when you overinflate.                |
+| overinflation | `Animation` The animation you want to link to your 'secondary' inflation layer. |
+
+This function also has its' own attributes. Modify them by assigning this function as a variable.
+
+| **Attribute** | **Description**                                                                                                                                                                                                                        |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| maxPoints     | `number` When you overinflate, the function adds one to the 'overinflation' value. This value determines the maximum amount that can be stored, and therefore determines how long it takes to reach full overinflation. Default is 12. |
+| factor        | `number` I attempted to create a modified smooth inflate that works as a substitute for a strain animation. This value determines how strong the effect is. Default is `2`                                                             |
+| threshold     | `number` If you have any points of overinflation (described in the maxPoints attribute), they will be all be discarded when you deflate BELOW this threshold. Default is 0.95 (95%)                                                    |
+
+No demonstration available
+
+## `.inflate:new(linkFunc)`, `.deflate:new(linkFunc)`
+On inflation, or on deflation, this function will fire the specified function.
+
+| **Parameter** | **Description**                                                                 |
+| ------------- | ------------------------------------------------------------------------------- |
+| linkFunc      | `function` A function block containing code that you wish to run every deflate. |
+
+No demonstration available
+
+## `.PehkuiLink:new(details, smoothInflate)`
+**Requires [this](https://codeberg.org/nexidict/Pehkui-Figura) library somewhere in your model, as well as the [Pehkui](https://modrinth.com/mod/pehkui) mod and, optionally, [Pehkui4All](https://www.curseforge.com/minecraft/mc-mods/pehkui4all)**
+
+***The following function is COMPLICATED!!! It is not for the faint of heart and may misbehave in certain circumstances!*** 
+Have you ever wanted your player model's appearance to match the actual hitboxes? With this function, this is about as close as we can get. This function sends Pehkui commands in a chain using the attached scripting library to emulate the effect within the constraints of Figura. 
+Due to the nature of this script, it can cause you to be spamkicked from the server. You can try messing with the Pehkui script to fix that, but it works best in servers that you have OP or cheats enabled in.
+
+| **Parameter** | **Description**                                                                                                                                                                                   |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| details       | `table` A dictionary of statistic details that you want the library to fire off. An example is provided below this table.                                                                         |
+| smoothInflate | `any` In your main script, first assign a `smoothInflate` function to a variable. You would then pass that into this function. *If you do not provide this, the function is guaranteed to error!* |
+
+Example:
+My inflation animation is 2 seconds long. Imagine that there is one 'stage' of inflation at each second.
+
+```lua
+local Inflation = {
+    [0] = {
+        base = 0.9,
+        motion = 0.75,
+        jump_height = 1.2,
+        step_height = 1.5,
+        hitbox_width = 2,
+        eye_height = 1.1,
+        hitbox_height = 1.1,
+        third_person = 1
+    },
+
+    [1] = {
+        hitbox_width = 2.75,
+        hitbox_height = 1.25,
+        eye_height = 1.15
+    },
+
+    [2] = {
+        hitbox_width = 5,
+        hitbox_height = 2,
+        eye_height = 1.6,
+        third_person = 1.5
+    }
+}
+```
+
+Following dictionary vocabulary: each key appropriates to the number of seconds in which you want these statistics to be considered active. Any time inbetween will be interpolated between each stage.
+At present, the `PehkuiLink` function requires animations to be set up in exact seconds for this function to work at its' best. Please bare this in mind when designing your inflation animation!
 
 No demonstration available
