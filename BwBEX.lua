@@ -30,23 +30,31 @@
 ---@field animateTexture table
 ---@field vibrate table
 ---@field float table
+---@field PehkuiLink table
+---@field PlayerAlive boolean
 local BwBEX = {
     paused = false,
     BwB = client:isModLoaded("better_with_blimps"),
     scraps = {},
     smoothInflate = {},
     pressureLink = {},
+    pressureLoop = {},
     linkAnimation = {},
     animateTexture = {},
     overinflate = {},
     vibrate = {},
     float = {},
+    inflate = {},
+    deflate = {},
+    PehkuiLink = {},
+    maxPressureAnimation = {},
     pressure = 0,
     maxPressure = 20,
     floatEffectBlacklist = {
         "better_with_blimps.juiced",
         "better_with_blimps.waterlogged"
-    }
+    },
+    PlayerAlive = true
 }
 BwBEX.__index = BwBEX
 ---@return BwBEX
@@ -63,42 +71,66 @@ local function GetDelta(LastClientTime)
 end
 
 local function GetPressure()
-    if player:isLoaded() and BwBEX.BwB then
-        local NBTAttribs = player:getNbt().Attributes
-        local AttributeName = "better_with_blimps:inflated_attribute"
+    -- -- Clear the old slot just incase
+    -- BwBEX.pressureSlot = nil
 
-        local function FetchNBTSlot()
-            for i,v in pairs(NBTAttribs) do
-                if NBTAttribs[i].Name == AttributeName then
-                    BwBEX.pressureSlot = i -- this search should only be needed once
-                    break
+    -- if player:isLoaded() and BwBEX.BwB and BwBEX.PlayerAlive then
+    --     local NBTAttribs = player:getNbt().Attributes
+    --     local AttributeName = "better_with_blimps:inflated_attribute"
+
+    --     local function FetchNBTSlot()
+    --         for i,v in pairs(NBTAttribs) do
+    --             if NBTAttribs[i].Name == AttributeName then
+    --                 BwBEX.pressureSlot = i -- this search should only be needed once
+    --                 break
+    --             end
+    --         end
+
+    --         return BwBEX.pressureSlot
+    --     end
+
+    --     local Value = NBTAttribs[FetchNBTSlot()].Base
+
+    --     if not type(Value) == "number" or not Value then
+    --         Value = 0
+    --     end
+
+    --     return Value
+    -- end
+
+    -- return 0
+
+    BwBEX.pressureSlot = nil
+
+    if player:isLoaded() and player:isAlive() then
+        --Afterwards, we make an anti break check to ensure that the bookmarked location is not invalid, and if it is we reset the bookmark to prevent an infinite break and skip this check entirely
+        if(player:getNbt()["Attributes"][BwBEX.pressureSlot] == nil) then
+            BwBEX.pressureSlot = 1
+            BwBEX.pressure = 0
+        end
+
+        --Then we check the bookmarked location for the value. If it is right we use that
+        if(player:getNbt()["Attributes"][BwBEX.pressureSlot]["Name"] == "better_with_blimps:inflated_attribute") then
+            BwBEX.pressure = player:getNbt()["Attributes"][BwBEX.pressureSlot]["Base"]
+        else
+            --if it fails, we then search to find it, and break once we do to prevent unneeded searches
+            for i, v in pairs(player:getNbt()["Attributes"]) do
+                if(player:getNbt()["Attributes"][i]["Name"] == "better_with_blimps:inflated_attribute") then
+                    --We also set a new bookmark here, via a second value called InfSlot. This gives us an easy way to skip searches in the future
+                    BwBEX.pressureSlot = i
+                    BwBEX.pressure = player:getNbt()["Attributes"][i]["Base"]
                 end
             end
         end
-
-        -- precaution
-        if player:isAlive() then
-            if not BwBEX.pressureSlot then
-                FetchNBTSlot()
-            end
-
-            if NBTAttribs[BwBEX.pressureSlot] then -- throws an error without this
-                if not NBTAttribs[BwBEX.pressureSlot].Name or NBTAttribs[BwBEX.pressureSlot].Name ~= AttributeName then
-                    FetchNBTSlot()
-                end
-            end
-        end
-
-        local Value = NBTAttribs[BwBEX.pressureSlot].Base
-
-        if not type(Value) == "number" or not Value then
-            Value = 0
-        end
-
-        return Value
+    end
+    
+    --If the number is invalid, or was never set because the player isn't loaded / alive, we default it to 0
+    if(type(BwBEX.pressure) ~= "number") then
+        BwBEX.pressure = 0
     end
 
-    return nil
+    --Finally, we return the stored inflation value
+    return BwBEX.pressure
 end
 
 local function CountDict(dict)
@@ -107,6 +139,14 @@ local function CountDict(dict)
         count = count + 1
     end
     return count
+end
+
+local function FindValueInTable(table, value)
+    for _,v in pairs(table) do
+        if v == value then
+            return true
+        end
+    end
 end
 
 --- Returns a clone of a specified table
@@ -155,24 +195,23 @@ end
 
 -- Main loop
 if BwBEX.BwB then
-    local PlayerAlive = true -- let's assume the player IS alive when the script starts
     function events.tick()
         -- why do i have to check if the player is LOADED ALL THE TIME!!!!!!
         if player:isLoaded() then
             -- Pressure slot check that must be done for some reason
-            if not PlayerAlive and player:isAlive() then
+            if player:isAlive() ~= BwBEX.PlayerAlive then
                 -- on the last tick, we were dead, but now we're alive
                 BwBEX.pressureSlot = nil
-                BwBEX.pressure = 0
             end
-            PlayerAlive = player:isAlive()
+            BwBEX.PlayerAlive = player:isAlive()
         end
         
         -- Paused check
         BwBEX.paused = client:isPaused() and #world:getPlayers() < 2 and host:isHost()
 
-        if not BwBEX.paused and PlayerAlive then
-            BwBEX.pressure = GetPressure()
+        if not BwBEX.paused and BwBEX.PlayerAlive then -- the amount of CHECKS i have to run!
+            -- BwBEX.pressure = GetPressure()
+            GetPressure()
             BwBEX.currentStatuses = host:getStatusEffects()
         end
     end
@@ -191,7 +230,8 @@ function BwBEX.vibrate:new(dict, threshold, options)
     self = setmetatable({}, BwBEX.vibrate)
     self.__index = self
     self.parts = dict
-    self.threshold = math.clamp(threshold, 0, 1) or 0.6
+    self.threshold = threshold or 0.6
+    self.threshold = math.clamp(self.threshold, 0, 1)
     self.MaxPressureSize = 0.01
     self.Speed = 1
     self.strainIntensity = 1
@@ -251,7 +291,7 @@ function BwBEX.vibrate:new(dict, threshold, options)
         end
     end
 
-    function events.render()
+    function events.post_render()
         local delta = GetDelta(LastStrainDelta) -- WHY DID YOU MAKE ME DO THIS.
         local PseudoRandomIntensity = RandomFloat(0.25, 2) -- Randomness
         local CurrentThreshold = BwBEX.pressure/BwBEX.maxPressure
@@ -347,7 +387,8 @@ function BwBEX.float:new(model, blacklist, threshold, intensity, offset)
 
     self = setmetatable({}, BwBEX.float)
     self.__index = self
-    self.threshold = math.clamp(threshold, 0, 1) or (1/5)
+    self.threshold = threshold or (1/5)
+    self.threshold = math.clamp(self.threshold, 0, 1)
     self.intensity = intensity or 1
     self.blacklist = blacklist or true
     self.offset = offset or 1.5
@@ -369,7 +410,7 @@ function BwBEX.float:new(model, blacklist, threshold, intensity, offset)
         return false
     end
 
-    function events.render(_, context)
+    function events.post_render(_, context)
         local delta = GetDelta(LastFloatDelta)
         local CurrentThreshold = BwBEX.pressure/BwBEX.maxPressure
 
@@ -448,14 +489,15 @@ function BwBEX.scraps:new(model, scraps, threshold)
     self.__index = self
     self.model = model
     self.scraps = scraps
-    self.threshold = math.clamp(threshold, 0, 1) or 0.5
+    self.threshold = threshold or 0.5
+    self.threshold = math.clamp(self.threshold, 0, 1)
 
     local Confetti
     for _, path in ipairs(listFiles("/", true)) do
         if string.find(path, "confetti") then Confetti = require(path) break end
     end
 
-    if not Confetti then error("Confetti was not located in your model! Please add it before using this function") end
+    assert(Confetti, "Confetti was not located in your model! Please add it before using this function")
     
     --- 'False' is visible
     local function UpdateModelVisibility(state)
@@ -481,67 +523,61 @@ function BwBEX.scraps:new(model, scraps, threshold)
         table.insert(MeshTbl, index, child:getName())
     end
     
-    function events.entity_init()
-        local dead = false -- internal dead variable
-
-        function events.world_tick()
-            if not BwBEX.pressure then return end
-
-            if BwBEX.pressure > (BwBEX.maxPressure * threshold) then
-                if dead == false and not player:isAlive() then
-                    -- we just died
-
-                    -- make model invisible immediately
-                    UpdateModelVisibility(false)
-                    
-                    -- create particle
-                    for _,meshName in pairs(MeshTbl) do
-                        for i=0, math.random(16, 64), 1 do
-                            local Position = player:getPos():add(vec(math.random(-100, 100) / 75, math.random(0, 200) / 100, math.random(-100, 100) / 75))
-                            local Velocity = vec((math.random(-100, 100) / 100)  * 1.5, (math.random(-25, 100) / 100) * 1.5, (math.random(-100, 100) / 100)  * 1.5)
-                            
-                            local ScrapOptions = {
-                                lifetime = math.random(1200,2400),
-                                friction = 0.90,
-                                scale  = math.random(100,200) / 100,
-                                acceleration = vec(0,-0.025,0),
-                                rotation = vec(math.random(0,180),math.random(0,180),math.random(0,180)),
-                                rotationOverTime = vec(math.random(-10,10),math.random(-10,10),math.random(-10,10)),
-                                ticker = function(particle)
-                                    local x,y,z = particle.velocity:unpack()
-                                    if (world.getBlockState(particle._position+vec(x,0,0)):isSolidBlock() or world.getBlockState(particle._position-vec(x,0,0)):isSolidBlock() or world.getBlockState(particle._position+vec(0,y,0)):isSolidBlock() or world.getBlockState(particle._position-vec(0,y,0)):isSolidBlock() or world.getBlockState(particle._position+vec(0,0,z)):isSolidBlock() or world.getBlockState(particle._position-vec(0,0,z)):isSolidBlock()) then
-                                        if(particle.lifetime < particle.options["lifetime"] - 5) then
-                                        particle.velocity = vec(0,0,0)
-                                        particle.options["rotationOverTime"] = vec(0,0,0)
-                                        particle.options["acceleration"] = vec(0,0,0)
-                                        particle.options["friction"] = 0
-                                        end
+    local dead = false
+    function events.tick()
+        if BwBEX.pressure > (BwBEX.maxPressure * self.threshold) then
+            if not player:isAlive() and not dead then
+                -- make model invisible immediately
+                UpdateModelVisibility(false)
+                
+                -- create particle
+                for _,meshName in pairs(MeshTbl) do
+                    for i=0, math.random(16, 64), 1 do
+                        local Position = player:getPos():add(vec(math.random(-100, 100) / 75, math.random(0, 200) / 100, math.random(-100, 100) / 75))
+                        local Velocity = vec((math.random(-100, 100) / 100)  * 1.5, (math.random(-25, 100) / 100) * 1.5, (math.random(-100, 100) / 100)  * 1.5)
+                        
+                        local ScrapOptions = { -- This has to be initiated for *each* particle
+                            lifetime = math.random(1200,2400),
+                            friction = 0.90,
+                            scale  = math.random(100,200) / 100,
+                            acceleration = vec(0,-0.025,0),
+                            rotation = vec(math.random(0,180),math.random(0,180),math.random(0,180)),
+                            rotationOverTime = vec(math.random(-10,10),math.random(-10,10),math.random(-10,10)),
+                            ticker = function(particle)
+                                local x,y,z = particle.velocity:unpack()
+                                if (world.getBlockState(particle._position+vec(x,0,0)):isSolidBlock() or world.getBlockState(particle._position-vec(x,0,0)):isSolidBlock() or world.getBlockState(particle._position+vec(0,y,0)):isSolidBlock() or world.getBlockState(particle._position-vec(0,y,0)):isSolidBlock() or world.getBlockState(particle._position+vec(0,0,z)):isSolidBlock() or world.getBlockState(particle._position-vec(0,0,z)):isSolidBlock()) then
+                                    if(particle.lifetime < particle.options["lifetime"] - 5) then
+                                    particle.velocity = vec(0,0,0)
+                                    particle.options["rotationOverTime"] = vec(0,0,0)
+                                    particle.options["acceleration"] = vec(0,0,0)
+                                    particle.options["friction"] = 0
                                     end
-                                    Confetti.defaultTicker(particle)
                                 end
-                            }
+                                Confetti.defaultTicker(particle)
+                            end
+                        }
 
-                            Confetti.newParticle(meshName, Position, Velocity, ScrapOptions)
-                        end
+                        Confetti.newParticle(meshName, Position, Velocity, ScrapOptions)
                     end
-
-                    -- finally, set dead variable
-                    dead = true
                 end
-            end
 
-            if dead == true and player:isAlive() then
-                -- we just came back to life
-                -- update model visibility
-                UpdateModelVisibility(true)
-                -- update variable
-                dead = false
+                -- finally, set dead variable
+                dead = true
             end
         end
+
+        if player:isAlive() and dead then
+            -- we just came back to life
+            -- update model visibility
+            UpdateModelVisibility(true)
+            dead = false
+        end
     end
+
+    return self
 end
 
---- A function dedicated to creating pressure links. At the specified threshold, run the specified function. Simple!
+--- A function dedicated to creating pressure links. At the specified threshold, run the specified function constantly. Simple!
 --- This function runs every WORLD tick! It may lag behind when the server you're playing on is struggling.
 --- Recommended to send a ping function through this, especially in regards to player changes.
 ---@param threshold number The percent threshold on the inflation meter, in decimal form, to start the link
@@ -551,15 +587,38 @@ function BwBEX.pressureLink:new(threshold, linkFunc)
     self = setmetatable({}, BwBEX.pressureLink)
     self.__index = self
     self.linkedFunction = linkFunc
-    self.threshold = threshold
+    self.threshold = self.threshold
     self.active = nil -- nil because we want this to update once on first run
 
-    function events.world_tick()
-        local active = BwBEX.pressure > (BwBEX.maxPressure*threshold) -- check if the current pressure is past the specified threshold
+    local LastActive = self.active
 
-        if active ~= self.active or not self.active then -- if it needs to be checked
-            linkFunc(active) -- run the linked function
-            self.active = active -- save this so we don't run this function twice
+    function events.world_tick()
+        self.active = BwBEX.pressure > (BwBEX.maxPressure*threshold) -- check if the current pressure is past the specified threshold
+
+        if LastActive ~= self.active then -- if it needs to be checked
+            linkFunc(self.active) -- run the linked function
+        end
+
+        LastActive = self.active
+    end
+
+    return self
+end
+
+--- Mirror of pressureLink, except it still so long as the threshold is met.
+--- This function runs every WORLD tick! It may lag behind when the server you're playing on is struggling.
+---@param threshold number The percent threshold on the inflation meter, in decimal form, to start the link
+---@param linkFunc function The function you want to run at this threshold. Has an innate argument: the player's pressure.
+function BwBEX.pressureLoop:new(threshold, linkFunc)
+    if not BwBEX.BwB then return end
+    self = setmetatable({}, BwBEX.pressureLink)
+    self.__index = self
+    self.linkedFunction = linkFunc
+    self.threshold = threshold
+
+    function events.world_tick()
+        if BwBEX.pressure > (BwBEX.maxPressure*self.threshold) then
+            linkFunc()
         end
     end
 
@@ -571,8 +630,9 @@ end
 --- Good for animations that will play when you reach a certain size (e.g. your butt suddenly inflating)
 ---@param anim Animation The animation you want to play at the specified size.
 ---@param threshold number? The percent threshold on the inflation meter, in decimal form, that you want the linked animation to play at. Default is 0.3 (30%).
----@param sound string|table? If you want to play a sound when you inflate, provide a string matching a sound OR a table containing a sound and its' attributes! Proper layout of a sound table is in the wiki.
-function BwBEX.linkAnimation:new(anim, threshold, sound)
+---@param chanceDenominator integer? The DENOMINATOR of a division operation that will determine the chance of this module activating after the specified threshold. Number is rounded to nearest integer. Default is 1
+---@param message string|table? Do you want a specialized chat message to be sent when this module activates? Provide a string!
+function BwBEX.linkAnimation:new(anim, threshold, chanceDenominator, message)
     if not BwBEX.BwB then return end
     if not anim then error("No animation provided to linkAnimation function!") end
     
@@ -580,36 +640,118 @@ function BwBEX.linkAnimation:new(anim, threshold, sound)
     self.__index = self
     self.animation = anim
     self.threshold = threshold or 0.3
-    self.active = false
-    self.sound = sound    
+    self.active = false 
+    self.sound = sound
+    self.chance = math.round(chanceDenominator) or 1
+    self.message = message
+    self.chattable = true
+    self.eyes = 1
+
+    local LastThreshold
 
     function events.world_tick()
         if BwBEX.paused then return end
         local current = BwBEX.pressure / BwBEX.maxPressure
 
-        if current >= self.threshold then
-            if not self.active then
-                self.animation:play()
+        if current ~= LastThreshold and current >= self.threshold then
+            local function SetAsActive()
+                if not self.active then
+                    self.animation:play()
 
-                if self.sound then
-                    -- we have a sound
-                    if type(self.sound) == "string" then
-                        -- this is a sound!
-                        sounds:playSound(self.sound, player:getPos(), 2, 0.8)
-                    else
-                        -- this is a table of sound settings!
-                        sounds:playSound(self.sound.Name, player:getPos(), self.sound.Volume or 2, self.sound.Pitch or 0.8)
+                    -- if self.sound then
+                    --     -- we have a sound
+                    --     if type(self.sound) == "string" then
+                    --         -- this is a sound!
+                    --         sounds:playSound(self.sound, player:getPos(), 2, 0.8)
+                    --     else
+                    --         -- this is a table of sound settings!
+                    --         sounds:playSound(self.sound.Name, player:getPos(), self.sound.Volume or 2, self.sound.Pitch or 0.8)
+                    --     end
+                    -- end
+
+                    if self.message and self.chattable then
+                        local Symbols = {"@", "O", "-", "><", "<>"}
+                        local SymbolNumber = math.random(1, #Symbols)
+                        local Symbol = Symbols[SymbolNumber]
+                        local Symbol1
+                        local Symbol2
+                        local FirstSlashArithmetic = math.round(math.clamp(current * 10, 3, BwBEX.maxPressure/2))
+                        local SecondSlashArithmetic = math.round(math.clamp(current * 20, 5, BwBEX.maxPressure))
+                        local SlashCount = math.random(FirstSlashArithmetic, SecondSlashArithmetic)
+                        local SlashString = ""
+                        local Teardrop = math.random(0, 2)
+                        local TeardropString = ""
+
+                        if string.len(Symbol) == 2 then
+                            -- use two eyes instead of 1
+                            Symbol1 = string.sub(Symbol, 1,1)
+                            Symbol2 = string.sub(Symbol, 2,2)
+                        end
+
+                        -- eye configuration
+                        ---@param DoubleSymbolMode boolean
+                        local function AddMoreEyes(DoubleSymbolMode)
+                            if DoubleSymbolMode then
+                                local Symbol1Temp = Symbol1 -- temporarily copying this string
+                                local Symbol2Temp = Symbol2 -- temporarily copying this string
+
+                                for i=1, self.eyes-1 do
+                                    Symbol1 = Symbol1 .. Symbol1Temp
+                                    Symbol2 = Symbol2 .. Symbol2Temp
+                                end
+                            else
+                                local SymbolTemp = Symbol -- temporarily copying this string
+                                for i=1, self.eyes-1 do
+                                    Symbol = Symbol .. SymbolTemp
+                                end
+                            end
+                        end
+
+                        AddMoreEyes(Symbol1 and true or false)
+
+                        -- blush configuration
+                        for i=1, SlashCount do
+                            SlashString = SlashString .. "/"
+                        end
+
+                        -- sweatdrop configuration
+                        for i=1, Teardrop do
+                            TeardropString = TeardropString .. "'"
+                        end
+
+                        local RandomMessage
+                        if type(self.message) == "table" then
+                            -- this is a table!
+                            RandomMessage = self.message[math.random(1, #self.message)]
+                        end
+
+                        local FinalMessage = (RandomMessage or self.message) .. string.format(" %s%s%s%s", Symbol1 or Symbol, SlashString, Symbol2 or Symbol, TeardropString)
+                        host:sendChatMessage(FinalMessage)
                     end
-                end
 
-                self.active = true
+                    self.active = true
+                end
+            end
+
+            if self.chance == 1 then
+                -- obviously, don't need to do math for this!
+                SetAsActive()
+            else
+                local chance = math.random(1, self.chance)
+
+                if chance == 1 then
+                    -- YIPPEE
+                    SetAsActive()
+                end
             end
         else
-            if self.active then
+            if self.active and current < self.threshold then
                 self.animation:stop()
                 self.active = false
             end
         end
+
+        LastThreshold = current
     end
 
     return self
@@ -792,37 +934,47 @@ end
 
 --- Credit to psq95, to CatChris for the code, and to spritesodaguzzler for the idea (unintentionally)!
 --- Creates a smoothed overinflation animation, and is also responsible for strain.
----@param strain Animation Plays this animation when your body 'strains' or overinflates.
----@param overinflation Animation? An overinflation animation. Consider this an imaginary secondary layer to your initial inflation.
----@param points number? If the overinflation is an imaginary layer, then this is considered its' limit. Each time your character is overinflated, this value goes up by 1. It resets when you return to normal levels of inflation. Default value: 5
----@param smoothing number? A smoothing value for the inflation animation. Default is 20.
----@param factor number? When your character overinflates, I attempted to create a simple 'pwoom!' effect to signify impact. This determines the factor by which the impact occurs. Default value: 2
-function BwBEX.overinflate:new(strain, overinflation, points, smoothing, factor)
+---@param strain Animation? Plays this animation when your body 'strains' or overinflates.
+---@param overinflation Animation An overinflation animation. Consider this an imaginary secondary layer to your initial inflation.
+function BwBEX.overinflate:new(overinflation, strain)
     if not BwBEX.BwB then return end
     self = setmetatable({}, BwBEX.overinflate)
     self.__index = self
 
+    -- variable setting
     self.strainAnim = strain
     self.overinflateAnim = overinflation
-    self.maxPoints = points or 5
+    self.maxPoints = 5
     self.targetTime = 0
     self.points = 0
-    self.factor = factor or 2
-    self.factor = math.max(1, self.factor)
-
-    self.smoothing = smoothing or 20
-    self.smoothing = math.max(1, self.smoothing)
+    self.factor = 2 -- Set to 1 to disable this effect
+    self.smoothing = 20
+    self.threshold = 0.95
 
     local NextOverinflate = false
+
+    --- sanity
+    local SanityCheck = 0
+    function events.tick()
+        SanityCheck = SanityCheck + 1
+
+        if SanityCheck % 15 == 0 then
+            self.factor = math.max(1, self.factor)
+            self.smoothing = math.max(1, self.smoothing)
+            self.threshold = math.clamp(self.threshold, 0, 1)
+        end
+    end
 
     function events.on_play_sound(id, pos, vol, pitch, loop, category)
         if not player:isLoaded() then return end
 
         if id:find("overinflate") and (pos - player:getPos()):length() < 1 and BwBEX.pressure >= BwBEX.maxPressure then
-            if self.strainAnim:isPlaying() then
-                self.strainAnim:stop()
+            if self.strainAnim then
+                if self.strainAnim:isPlaying() then
+                    self.strainAnim:stop()
+                end
+                self.strainAnim:play()
             end
-            self.strainAnim:play()
 
             self.points = math.clamp((self.points + 1), 0, self.maxPoints)
 
@@ -836,12 +988,13 @@ function BwBEX.overinflate:new(strain, overinflation, points, smoothing, factor)
         self.overinflateAnim:pause()
         self.overinflateAnim:setTime(0)
         function events.tick()
-            if BwBEX.pressure < BwBEX.maxPressure and self.points ~= 0 then
+            if BwBEX.pressure <= (BwBEX.maxPressure * self.threshold) and self.points ~= 0 then
                 -- reset all points
                 self.points = 0
             end
         end
 
+        local LastPoints = 0
         function events.render()
             -- self.targetTime = (BwBEX.pressure / BwBEX.maxPressure) * self.anim:getLength()
             self.targetTime = (self.points / self.maxPoints) * self.overinflateAnim:getLength()
@@ -849,9 +1002,20 @@ function BwBEX.overinflate:new(strain, overinflation, points, smoothing, factor)
             if self.overinflateAnim:getTime() == self.targetTime then return end -- This should not be running when the player is not inflating
 
             if NextOverinflate then
-                local overinflateExtraMath = math.clamp((self.targetTime * self.factor), 0, self.overinflateAnim:getLength())
-                self.overinflateAnim:setTime(overinflateExtraMath)
+                local TranslatedFactor = self.factor
+                if self.factor > 1 and LastPoints == (self.maxPoints - 1) then
+                    -- this next inflate should have factor IGNORED in the math
+                    TranslatedFactor = 1
+                end
+
+                local overinflateExtraMath = math.clamp((self.targetTime * TranslatedFactor), 0, self.overinflateAnim:getLength())
+                -- self.overinflateAnim:setTime(overinflateExtraMath)
+                if overinflateExtraMath ~= self.targetTime then
+                    self.overinflateAnim:setTime(overinflateExtraMath)
+                end
                 NextOverinflate = false
+
+                LastPoints = self.points
             end
 
             local mathz = self.overinflateAnim:getTime() + (self.targetTime - self.overinflateAnim:getTime()) / (self.smoothing)
@@ -864,6 +1028,163 @@ function BwBEX.overinflate:new(strain, overinflation, points, smoothing, factor)
             self.overinflateAnim:setTime(mathz)
         end
     end
+
+    return self
+end
+
+--- Credit to yoshi364 (Percy) for the idea!
+--- This function runs every time you inflate.
+--- This function also runs every WORLD tick! It may lag behind when the server you're playing on is struggling.
+---@param linkFunc function The function you want to run each time you INflate.
+function BwBEX.inflate:new(linkFunc)
+    if not BwBEX.BwB then return end
+    self = setmetatable({}, BwBEX.inflate)
+    self.__index = self
+    self.linkedFunction = linkFunc
+    self.active = nil -- nil because we want this to update once on first run
+
+    local LastPressure = BwBEX.pressure
+    function events.world_tick()
+        if BwBEX.pressure > LastPressure then
+            self.linkedFunction()
+        end
+        -- update the last pressure value
+        LastPressure = BwBEX.pressure
+    end
+
+    return self
+end
+
+--- Inverse of BwBEX.inflate.
+--- This function runs every WORLD tick! It may lag behind when the server you're playing on is struggling.
+---@param linkFunc function The function you want to run each time you DEflate.
+function BwBEX.deflate:new(linkFunc)
+    if not BwBEX.BwB then return end
+    self = setmetatable({}, BwBEX.deflate)
+    self.__index = self
+    self.linkedFunction = linkFunc
+    self.active = nil -- nil because we want this to update once on first run
+
+    local LastPressure = BwBEX.pressure
+    function events.world_tick()
+        if BwBEX.pressure < LastPressure then
+            self.linkedFunction()
+        end
+        -- update the last pressure value
+        LastPressure = BwBEX.pressure
+    end
+
+    return self
+end
+
+---@param details table A valid dictionary of details describing your hitboxes from stage 0 to stage X. 
+---@param smoothInflate any First use BwBEX.smoothInflate on an animation. Then provide that as a variable here!
+function BwBEX.PehkuiLink:new(details, smoothInflate)
+    if not BwBEX.BwB then return end
+    self = setmetatable({}, BwBEX.PehkuiLink)
+    self.__index = self
+    -- Creating a universal function for the PehkuiLib
+    local PehkuiLib, Queue
+    for _, path in ipairs(listFiles("/", true)) do
+        if string.find(path, "Pehkui") then PehkuiLib = require(path) end
+        if string.find(path, "Queue") then Queue = require(path) end
+
+        if PehkuiLib and Queue then break end
+    end
+
+    assert(PehkuiLib, "Missing a supported Pehkui library! BwBEX.PehkuiLink won't work without it!")
+    assert(Queue, "You also need Queue.lua from the same repository for BwBEX.PehkuiLink to work!!")
+
+    if client:isModLoaded("pehkui") then
+        local SentAttributes = {}
+        local function SendPehkuiData(dict)
+            if player:isLoaded() then
+                for attrib, value in pairs(dict) do
+                    if string.find(attrib, "attrib_") and player:getPermissionLevel() >= 4 then
+                        -- send it as an ATTRIBUTE
+                        if not FindValueInTable(SentAttributes, attrib) then
+                            local ModifiedCommand = string.format("attribute @s %s base set %s", string.sub(attrib, 8, -1), value)
+                            host:sendChatCommand(ModifiedCommand)
+                            table.insert(SentAttributes, attrib)
+                        end
+                    else
+                        PehkuiLib.setScale(string.format("pehkui:%s", attrib), value, false) -- assume it's a pehkui value
+                    end
+                end
+            end
+        end
+
+        assert(smoothInflate.targetTime, "smoothInflate provided is an invalid object! Make sure that you link your object to a VARIABLE!")
+        self.object = smoothInflate
+        self.details = details
+        self.dead = false
+        local LastTime
+
+        function events.entity_init()
+            -- Send default Pehkui data
+            SendPehkuiData(self.details[0])
+            function events.world_tick()
+                local TargetTime = self.object.targetTime
+                local Animation = self.object.anim
+                local AnimLength = Animation:getLength()
+                local StageCount = CountDict(details)-1
+                local StageIncrement = AnimLength/StageCount
+                
+                local StageMath = math.lerp(0, StageCount, TargetTime/AnimLength)
+                local CurrentStage = math.floor(StageMath % StageCount)
+                local NextStage = math.clamp(CurrentStage + 1, 1, StageCount)
+                local StageProgress = (TargetTime-(CurrentStage*StageIncrement))/StageIncrement
+                if BwBEX.pressure == BwBEX.maxPressure then 
+                    StageProgress = 1 
+                    CurrentStage = StageCount - 1
+                    NextStage = StageCount
+                end
+
+                -- Determines what a new Pehkui table of your pressure should contain
+                local function TruncateDetails()
+                    -- Return the new table
+                    if TargetTime <= 0 then
+                        return self.details[0]
+                    end
+
+                    local NewPehkuiAttribs = {}
+                    -- the goal: construct a new table in NewPehkuiAttribs containing a mixture of the last and next stage
+                    -- TODO figure out how to make it so that missing attributes are grabbed from the next valid table and are applied as a lerp between it and whatever the next stage needs
+                    for attribute,value in pairs(self.details[NextStage]) do -- for each value in the details table...
+                        local CurrentStageTable = self.details[CurrentStage]
+                        -- if the value wasn't specified in the current stage table, fall back onto the base table
+                        if not CurrentStageTable[attribute] then
+                            CurrentStageTable = self.details[0]
+                        end
+                        -- Do a bunch of math to determine the inbetween position of this attribute
+                        NewPehkuiAttribs[attribute] = math.lerp(CurrentStageTable[attribute], value, StageProgress)
+                    end
+
+                    return NewPehkuiAttribs -- return details
+                end
+
+                if LastTime ~= TargetTime then
+                    SendPehkuiData(TruncateDetails())
+                    LastTime = TargetTime
+                end
+
+                -- death case
+                if not player:isAlive() and not self.dead then
+                    -- player just died! oopsies!
+                    self.dead = true
+                end
+
+                if player:isAlive() and self.dead then
+                    -- reset pehkui
+                    log("Your hitbox statistics are now reset!")
+                    SendPehkuiData(self.details[0])
+                    self.dead = false
+                end
+            end
+        end
+    end
+    
+    return self
 end
 
 return BwBEX
